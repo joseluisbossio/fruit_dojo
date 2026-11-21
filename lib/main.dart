@@ -4,7 +4,76 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:lottie/lottie.dart';
+
+// ============================================================================
+// GESTOR DE EFECTOS DE SONIDO (AUDIO SFX)
+// ============================================================================
+class SoundEffects {
+  static final AudioPlayer _slashPlayer = AudioPlayer();
+  static final List<AudioPlayer> _splatPlayers = [
+    AudioPlayer(),
+    AudioPlayer(),
+    AudioPlayer(),
+    AudioPlayer(),
+  ];
+  static int _splatIdx = 0;
+  static final AudioPlayer _bombPlayer = AudioPlayer();
+  static final AudioPlayer _comboPlayer = AudioPlayer();
+
+  static void init() {
+    try {
+      _slashPlayer.setPlayerMode(PlayerMode.lowLatency);
+      for (final p in _splatPlayers) {
+        p.setPlayerMode(PlayerMode.lowLatency);
+      }
+      _bombPlayer.setPlayerMode(PlayerMode.lowLatency);
+      _comboPlayer.setPlayerMode(PlayerMode.lowLatency);
+    } catch (_) {}
+  }
+
+  static void dispose() {
+    try {
+      _slashPlayer.dispose();
+      for (final p in _splatPlayers) {
+        p.dispose();
+      }
+      _bombPlayer.dispose();
+      _comboPlayer.dispose();
+    } catch (_) {}
+  }
+
+  static void playSlash() {
+    try {
+      _slashPlayer.stop();
+      _slashPlayer.play(AssetSource('audio/katana_slash.wav'), mode: PlayerMode.lowLatency);
+    } catch (_) {}
+  }
+
+  static void playSplat() {
+    try {
+      final p = _splatPlayers[_splatIdx];
+      _splatIdx = (_splatIdx + 1) % _splatPlayers.length;
+      p.stop();
+      p.play(AssetSource('audio/fruit_splat.wav'), mode: PlayerMode.lowLatency);
+    } catch (_) {}
+  }
+
+  static void playBomb() {
+    try {
+      _bombPlayer.stop();
+      _bombPlayer.play(AssetSource('audio/bomb_explode.wav'), mode: PlayerMode.lowLatency);
+    } catch (_) {}
+  }
+
+  static void playCombo() {
+    try {
+      _comboPlayer.stop();
+      _comboPlayer.play(AssetSource('audio/combo.wav'), mode: PlayerMode.lowLatency);
+    } catch (_) {}
+  }
+}
 
 double _hypot(double a, double b) => math.sqrt(a * a + b * b);
 
@@ -231,16 +300,19 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
   double _comboTimer = 0.0;
   double _comboX = 0, _comboY = 0;
   double _menuTime = 0;
+  int _lastSlashSoundMs = 0;
 
   @override
   void initState() {
     super.initState();
+    SoundEffects.init();
     _ticker = createTicker(_onTick)..start();
   }
 
   @override
   void dispose() {
     _ticker.dispose();
+    SoundEffects.dispose();
     super.dispose();
   }
 
@@ -330,6 +402,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
     _bonusRoundTimer = 6.5;
     _bonusCooldown = 18.0;
     HapticFeedback.mediumImpact();
+    SoundEffects.playCombo();
     _lotties.add(LottieOverlayEffect(_nextId++, _comboBytes, _W / 2, _H * 0.35, 260, 0.9));
     _texts.add(FloatingText(
       '★ NIVEL BONUS ${_levelNum - 1}: ¡FRENESÍ! ★',
@@ -365,6 +438,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
       _score += 2;
       _screenShake = 6;
       HapticFeedback.lightImpact();
+      SoundEffects.playSplat();
       for (int i = 0; i < 8; i++) {
         final a = _rng.nextDouble() * math.pi * 2;
         final spd = 140 + _rng.nextDouble() * 220;
@@ -378,6 +452,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
 
     if (ent.kind == EntityKind.bomb) {
       HapticFeedback.heavyImpact();
+      SoundEffects.playBomb();
       _screenShake = 24;
       _flashAlpha = 0.85;
       _lotties.add(LottieOverlayEffect(_nextId++, _explosionBytes, ent.x, ent.y, 260, 0.9));
@@ -398,6 +473,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
     }
 
     HapticFeedback.lightImpact();
+    SoundEffects.playSplat();
     final pts = _bonusRoundTimer > 0 ? 2 : 1;
     _score += pts;
     _comboCount++;
@@ -432,6 +508,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
 
   void _flushCombo() {
     if (_comboCount >= 3) {
+      SoundEffects.playCombo();
       final bonus = _comboCount;
       _score += bonus;
       _lotties.add(LottieOverlayEffect(_nextId++, _comboBytes, _comboX, _comboY, 200, 0.8));
@@ -558,8 +635,14 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
   }
 
   void _handleSwipe(double x1, double y1, double x2, double y2, int nowMs) {
-    if (_hypot(x2 - x1, y2 - y1) < 4) return;
+    final swipeDist = _hypot(x2 - x1, y2 - y1);
+    if (swipeDist < 4) return;
     final cutAngle = math.atan2(y2 - y1, x2 - x1);
+
+    if (swipeDist > 35 && nowMs - _lastSlashSoundMs > 140) {
+      _lastSlashSoundMs = nowMs;
+      SoundEffects.playSlash();
+    }
 
     if (_state == GameState.menu) {
       final gap = math.min(115.0, _W * 0.25);
