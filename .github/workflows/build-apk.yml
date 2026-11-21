@@ -21,7 +21,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -33,6 +32,7 @@ jobs:
       - name: Generate Android scaffold
         run: |
           flutter create . --platforms=android --org ar.abakos --project-name fruit_dojo
+          git checkout -- pubspec.yaml lib/main.dart README.md
 
       - name: Install dependencies
         run: flutter pub get
