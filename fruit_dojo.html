@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Fruit Dojo - Edición Web</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #0b0c10; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+    #musicBtn {
+      position: absolute; top: 16px; right: 16px; width: 44px; height: 44px;
+      border-radius: 50%; background: rgba(0,0,0,0.65); border: 2px solid #ffd166;
+      color: #ffd166; display: flex; align-items: center; justify-content: center;
+      font-size: 20px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      transition: all 0.2s ease; z-index: 100;
+    }
+    #musicBtn:hover { transform: scale(1.08); background: rgba(0,0,0,0.85); }
+    #musicBtn.muted { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.4); }
+  </style>
+</head>
+<body>
+  <div id="musicBtn" title="Activar/Desactivar Música">🎵</div>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    // --- 1. SÍNTESIS DE AUDIO WEB (Cero latencia, 100% offline) ---
+    const AudioEngine = {
+      ctx: null,
+      musicEnabled: true,
+      musicPlaying: false,
+      musicTimer: null,
+      
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+        }
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      },
+
+      playSlash() {
+        this.init();
+        const ctx = this.ctx;
+        const now = ctx.currentTime;
+        
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(3200, now);
+        osc.frequency.exponentialRampToValueAtTime(300, now + 0.14);
+        
+        gain.gain.setValueAtTime(0.45, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+        
+        const bufferSize = ctx.sampleRate * 0.15;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1800, now);
+        filter.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+        filter.Q.value = 2.5;
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.6, now);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+        osc.connect(gain); gain.connect(ctx.destination);
+        noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(ctx.destination);
+        
+        osc.start(now); osc.stop(now + 0.15);
+        noise.start(now); noise.stop(now + 0.15);
+      },
+
+      playSplat() {
+        this.init();
+        const ctx = this.ctx;
+        const now = ctx.currentTime;
+        
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(450, now);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.22);
+
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+        const bSize = ctx.sampleRate * 0.18;
+        const b = ctx.createBuffer(1, bSize, ctx.sampleRate);
+        const d = b.getChannelData(0);
+        for (let i = 0; i < bSize; i++) d[i] = Math.random() * 2 - 1;
+        const n = ctx.createBufferSource();
+        n.buffer = b;
+        const nGain = ctx.createGain();
+        nGain.gain.setValueAtTime(0.5, now);
+        nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+        osc.connect(gain); gain.connect(ctx.destination);
+        n.connect(nGain); nGain.connect(ctx.destination);
+
+        osc.start(now); osc.stop(now + 0.22);
+        n.start(now); n.stop(now + 0.18);
+      },
+
+      playBomb() {
+        this.init();
+        const ctx = this.ctx;
+        const now = ctx.currentTime;
+        
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(25, now + 0.6);
+
+        gain.gain.setValueAtTime(0.9, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+        const bSize = ctx.sampleRate * 0.55;
+        const b = ctx.createBuffer(1, bSize, ctx.sampleRate);
+        const d = b.getChannelData(0);
+        for (let i = 0; i < bSize; i++) d[i] = Math.random() * 2 - 1;
+        const n = ctx.createBufferSource();
+        n.buffer = b;
+        const f = ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.setValueAtTime(400, now);
+        f.frequency.exponentialRampToValueAtTime(40, now + 0.55);
+
+        const nGain = ctx.createGain();
+        nGain.gain.setValueAtTime(0.85, now);
+        nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+
+        osc.connect(gain); gain.connect(ctx.destination);
+        n.connect(f); f.connect(nGain); nGain.connect(ctx.destination);
+
+        osc.start(now); osc.stop(now + 0.6);
+        n.start(now); n.stop(now + 0.55);
+      },
+
+      playCombo() {
+        this.init();
+        const ctx = this.ctx;
+        const notes = [587.33, 783.99, 880.0, 1174.66];
+        notes.forEach((freq, idx) => {
+          const now = ctx.currentTime + idx * 0.06;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now);
+          gain.gain.setValueAtTime(0.35, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(now); osc.stop(now + 0.45);
+        });
+      },
+
+      startDojoMusic() {
+        if (!this.musicEnabled || this.musicPlaying) return;
+        this.init();
+        this.musicPlaying = true;
+        const bpm = 112;
+        const beatSec = 60 / bpm;
+        let step = 0;
+
+        const melody = [
+          293.66, 0, 311.13, 293.66, 220.0, 0, 196.0, 0,
+          220.0, 0, 293.66, 311.13, 392.0, 440.0, 0, 0,
+          587.33, 0, 440.0, 392.0, 440.0, 466.16, 440.0, 0,
+          392.0, 311.13, 293.66, 0, 220.0, 0, 293.66, 0
+        ];
+
+        this.musicTimer = setInterval(() => {
+          if (!this.musicEnabled) return;
+          const ctx = this.ctx;
+          const now = ctx.currentTime;
+
+          if (step % 4 === 0 || step % 8 === 6) {
+            const tOsc = ctx.createOscillator();
+            const tGain = ctx.createGain();
+            tOsc.frequency.setValueAtTime(75, now);
+            tOsc.frequency.exponentialRampToValueAtTime(35, now + 0.28);
+            tGain.gain.setValueAtTime(0.35, now);
+            tGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+            tOsc.connect(tGain); tGain.connect(ctx.destination);
+            tOsc.start(now); tOsc.stop(now + 0.28);
+          }
+
+          const freq = melody[step % melody.length];
+          if (freq > 0) {
+            const kOsc = ctx.createOscillator();
+            const kGain = ctx.createGain();
+            kOsc.type = 'triangle';
+            kOsc.frequency.setValueAtTime(freq, now);
+            kGain.gain.setValueAtTime(0.18, now);
+            kGain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            kOsc.connect(kGain); kGain.connect(ctx.destination);
+            kOsc.start(now); kOsc.stop(now + 0.35);
+          }
+
+          step++;
+        }, beatSec * 500);
+      },
+
+      toggleMusic() {
+        this.musicEnabled = !this.musicEnabled;
+        const btn = document.getElementById('musicBtn');
+        if (this.musicEnabled) {
+          btn.textContent = '🎵';
+          btn.classList.remove('muted');
+          this.startDojoMusic();
+        } else {
+          btn.textContent = '🔇';
+          btn.classList.add('muted');
+          clearInterval(this.musicTimer);
+          this.musicPlaying = false;
+        }
+      }
+    };
+
+    document.getElementById('musicBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      AudioEngine.toggleMusic();
+    });
+
+    // --- 2. MOTOR DEL JUEGO CANVAS ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let W = window.innerWidth, H = window.innerHeight;
+    function resize() {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const FRUIT_TYPES = [
+      { name: 'Sandía', r: 42, rind: '#228B3B', stripe: '#145823', pith: '#D8F3C8', flesh: '#FF3B4E', juice: '#FF3B4E' },
+      { name: 'Naranja', r: 36, rind: '#E86F00', stripe: '#FF8F1F', pith: '#FFE6B8', flesh: '#FFA31A', juice: '#FF9500' },
+      { name: 'Manzana', r: 35, rind: '#D62828', stripe: '#A61414', pith: '#FFF3D6', flesh: '#F8EAB8', juice: '#FF5252' },
+      { name: 'Kiwi', r: 32, rind: '#7F5539', stripe: '#5E3D28', pith: '#9EF01A', flesh: '#70E000', juice: '#80ED19' }
+    ];
+
+    let state = 'menu';
+    let mode = 'classic';
+    let score = 0, lives = 3, timeLeft = 60, highClassic = 0, highTimed = 0;
+    let entities = [], halves = [], particles = [], texts = [], trail = [];
+    let waveTimer = 0.5, screenShake = 0, flashAlpha = 0;
+    let comboCount = 0, comboTimer = 0, lastSlashMs = 0;
+
+    function startGame(m) {
+      mode = m; state = 'playing'; score = 0; lives = 3; timeLeft = 60;
+      entities = []; halves = []; particles = []; texts = [];
+      AudioEngine.startDojoMusic();
+    }
+
+    function spawnWave() {
+      const count = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < count; i++) {
+        const isBomb = score >= 4 && Math.random() < 0.22;
+        const type = FRUIT_TYPES[Math.floor(Math.random() * FRUIT_TYPES.length)];
+        const x = W * 0.15 + Math.random() * (W * 0.7);
+        const targetX = W * 0.25 + Math.random() * (W * 0.5);
+        const peak = H * (0.6 + Math.random() * 0.22);
+        const vy = -Math.sqrt(2 * 1050 * peak);
+        const vx = (targetX - x) / ((-vy * 2) / 1050);
+        entities.push({
+          isBomb, type, x, y: H + 50 + i * 25, vx, vy,
+          r: isBomb ? 36 : type.r, rot: 0, vr: (Math.random() - 0.5) * 6, sliced: false
+        });
+      }
+    }
+
+    function sliceEntity(ent, cutAngle) {
+      ent.sliced = true;
+      if (ent.isBomb) {
+        AudioEngine.playBomb();
+        screenShake = 22; flashAlpha = 0.85;
+        if (mode === 'classic') {
+          state = 'gameover';
+          if (score > highClassic) highClassic = score;
+        } else {
+          score = Math.max(0, score - 10);
+        }
+        return;
+      }
+
+      AudioEngine.playSplat();
+      score++; comboCount++; comboTimer = 0.25;
+
+      for (let i = 0; i < 14; i++) {
+        const a = cutAngle + (Math.random() - 0.5) * 2;
+        const spd = 120 + Math.random() * 260;
+        particles.push({
+          x: ent.x, y: ent.y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd - 60,
+          r: 4, col: ent.type.juice, life: 0.55, maxLife: 0.55
+        });
+      }
+
+      const perp = cutAngle + Math.PI / 2;
+      [-1, 1].forEach(side => {
+        halves.push({
+          type: ent.type, r: ent.r, side,
+          x: ent.x + Math.cos(perp) * side * 6, y: ent.y + Math.sin(perp) * side * 6,
+          vx: ent.vx + Math.cos(perp) * side * 140, vy: ent.vy + Math.sin(perp) * side * 140 - 50,
+          cutAngle, spinAngle: cutAngle, rot: ent.rot, vr: side * (3 + Math.random() * 3)
+        });
+      });
+      texts.push({ text: '+1', x: ent.x, y: ent.y - 20, vy: -70, col: '#ffd166', life: 0.6, maxLife: 0.6, size: 24 });
+    }
+
+    let isDown = false, lastX = 0, lastY = 0;
+    function handlePointer(x, y, isStart) {
+      AudioEngine.init();
+      AudioEngine.startDojoMusic();
+      const now = performance.now();
+      if (!isStart) {
+        const dx = x - lastX, dy = y - lastY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 28 && now - lastSlashMs > 110) {
+          lastSlashMs = now;
+          AudioEngine.playSlash();
+        }
+
+        if (state === 'menu') {
+          const gap = Math.min(115, W * 0.25);
+          if (Math.hypot(x - (W/2 - gap), y - H * 0.58) < 52) { AudioEngine.playSplat(); startGame('classic'); }
+          if (Math.hypot(x - (W/2 + gap), y - H * 0.58) < 54) { AudioEngine.playSplat(); startGame('timed'); }
+        } else if (state === 'playing') {
+          entities.forEach(e => {
+            if (!e.sliced && Math.hypot(x - e.x, y - e.y) < e.r * 1.15) {
+              sliceEntity(e, Math.atan2(dy, dx));
+            }
+          });
+        }
+      }
+      trail.push({ x, y, t: now });
+      lastX = x; lastY = y;
+    }
+
+    window.addEventListener('pointerdown', e => {
+      isDown = true;
+      if (state === 'gameover') { state = 'menu'; return; }
+      trail = [];
+      handlePointer(e.clientX, e.clientY, true);
+    });
+    window.addEventListener('pointermove', e => { if (isDown) handlePointer(e.clientX, e.clientY, false); });
+    window.addEventListener('pointerup', () => { isDown = false; if (comboCount >= 3) AudioEngine.playCombo(); comboCount = 0; });
+
+    let lastTime = performance.now();
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      if (comboTimer > 0) {
+        comboTimer -= dt;
+        if (comboTimer <= 0) {
+          if (comboCount >= 3) { AudioEngine.playCombo(); score += comboCount; }
+          comboCount = 0;
+        }
+      }
+      if (screenShake > 0) screenShake = Math.max(0, screenShake - dt * 50);
+      if (flashAlpha > 0) flashAlpha = Math.max(0, flashAlpha - dt * 2.2);
+
+      if (state === 'playing') {
+        if (mode === 'timed') {
+          timeLeft -= dt;
+          if (timeLeft <= 0) { state = 'gameover'; if (score > highTimed) highTimed = score; }
+        }
+        waveTimer -= dt;
+        if (waveTimer <= 0) {
+          spawnWave();
+          waveTimer = Math.max(0.9, 2.0 - Math.min(score, 60) * 0.018);
+        }
+
+        entities.forEach(e => {
+          e.x += e.vx * dt; e.y += e.vy * dt; e.vy += 1050 * dt; e.rot += e.vr * dt;
+          if (mode === 'classic' && !e.sliced && !e.isBomb && e.vy > 0 && e.y > H + 60) {
+            e.sliced = true; lives--;
+            if (lives <= 0) { state = 'gameover'; if (score > highClassic) highClassic = score; }
+          }
+        });
+        entities = entities.filter(e => !e.sliced || e.y < H + 180);
+      }
+
+      halves.forEach(h => { h.x += h.vx * dt; h.y += h.vy * dt; h.vy += 1050 * dt; h.spinAngle += h.vr * dt; });
+      halves = halves.filter(h => h.y < H + 150);
+
+      particles.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 600 * dt; p.life -= dt; });
+      particles = particles.filter(p => p.life > 0);
+
+      texts.forEach(t => { t.y += t.vy * dt; t.life -= dt; });
+      texts = texts.filter(t => t.life > 0);
+
+      trail = trail.filter(p => now - p.t < 140);
+
+      ctx.save();
+      if (screenShake > 0) {
+        ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
+      }
+
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+      bgGrad.addColorStop(0, '#1c1510'); bgGrad.addColorStop(1, '#0e0a08');
+      ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+
+      if (state === 'menu') {
+        ctx.fillStyle = '#ffe5b4'; ctx.font = 'bold ' + Math.min(50, W * 0.11) + 'px Segoe UI';
+        ctx.textAlign = 'center'; ctx.fillText('FRUIT DOJO', W/2, H * 0.22);
+        ctx.fillStyle = '#5ef2c6'; ctx.font = '18px Segoe UI';
+        ctx.fillText('Corta una fruta con el mouse para jugar', W/2, H * 0.32);
+
+        const gap = Math.min(115, W * 0.25);
+        ctx.beginPath(); ctx.arc(W/2 - gap, H * 0.58, 44, 0, Math.PI*2); ctx.fillStyle = '#228B3B'; ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = '15px Segoe UI'; ctx.fillText('CLÁSICO', W/2 - gap, H * 0.58 + 68);
+        ctx.fillText('Récord: ' + highClassic, W/2 - gap, H * 0.58 + 90);
+
+        ctx.beginPath(); ctx.arc(W/2 + gap, H * 0.58, 44, 0, Math.PI*2); ctx.fillStyle = '#E86F00'; ctx.fill();
+        ctx.fillStyle = '#ffd166'; ctx.fillText('TIEMPO', W/2 + gap, H * 0.58 + 68);
+        ctx.fillText('Récord: ' + highTimed, W/2 + gap, H * 0.58 + 90);
+      }
+
+      entities.forEach(e => {
+        if (e.sliced) return;
+        ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.rot);
+        if (e.isBomb) {
+          ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI*2); ctx.fillStyle = '#1b1b1b'; ctx.fill();
+          ctx.strokeStyle = '#e63946'; ctx.lineWidth = 4; ctx.stroke();
+          ctx.fillStyle = '#ffbe0b'; ctx.font = 'bold 24px Segoe UI'; ctx.textAlign = 'center'; ctx.fillText('💣', 0, 8);
+        } else {
+          ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI*2); ctx.fillStyle = e.type.rind; ctx.fill();
+          ctx.beginPath(); ctx.arc(0, 0, e.r * 0.82, 0, Math.PI*2); ctx.fillStyle = e.type.flesh; ctx.fill();
+        }
+        ctx.restore();
+      });
+
+      halves.forEach(h => {
+        ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.spinAngle);
+        ctx.beginPath(); ctx.arc(0, 0, h.r, 0, Math.PI, h.side === 1); ctx.fillStyle = h.type.rind; ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, h.r * 0.8, 0, Math.PI, h.side === 1); ctx.fillStyle = h.type.flesh; ctx.fill();
+        ctx.restore();
+      });
+
+      particles.forEach(p => {
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+        ctx.fillStyle = p.col; ctx.globalAlpha = Math.max(0, p.life / p.maxLife); ctx.fill();
+        ctx.globalAlpha = 1.0;
+      });
+
+      texts.forEach(t => {
+        ctx.fillStyle = t.col; ctx.font = 'bold ' + t.size + 'px Segoe UI'; ctx.textAlign = 'center';
+        ctx.globalAlpha = Math.max(0, t.life / t.maxLife); ctx.fillText(t.text, t.x, t.y);
+        ctx.globalAlpha = 1.0;
+      });
+
+      for (let i = 1; i < trail.length; i++) {
+        const p0 = trail[i-1], p1 = trail[i];
+        const alpha = Math.max(0, 1 - (now - p1.t) / 140);
+        ctx.strokeStyle = `rgba(94, 242, 198, ${alpha * 0.8})`;
+        ctx.lineWidth = 8 * alpha + 2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+      }
+
+      if (state === 'playing') {
+        ctx.fillStyle = '#ffd166'; ctx.font = 'bold 36px Segoe UI'; ctx.textAlign = 'left';
+        ctx.fillText(score, 24, 46);
+        ctx.textAlign = 'right';
+        if (mode === 'classic') {
+          for (let i = 0; i < 3; i++) {
+            ctx.fillStyle = i >= lives ? '#ff3b4e' : 'rgba(255,255,255,0.25)';
+            ctx.fillText('✕', W - 76 - i * 30, 46);
+          }
+        } else {
+          ctx.fillStyle = timeLeft <= 10 ? '#ff4d5a' : '#5ef2c6';
+          ctx.fillText(Math.ceil(timeLeft) + 's', W - 76, 46);
+        }
+      }
+
+      if (state === 'gameover') {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#ff4d5a'; ctx.font = 'bold 42px Segoe UI'; ctx.textAlign = 'center';
+        ctx.fillText('¡GAME OVER!', W/2, H * 0.40);
+        ctx.fillStyle = '#ffd166'; ctx.font = '26px Segoe UI'; ctx.fillText('Puntuación: ' + score, W/2, H * 0.49);
+        ctx.fillStyle = '#ffffff'; ctx.font = '18px Segoe UI'; ctx.fillText('Haz clic para volver al menú', W/2, H * 0.58);
+      }
+
+      if (flashAlpha > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${flashAlpha})`; ctx.fillRect(0, 0, W, H);
+      }
+
+      ctx.restore();
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

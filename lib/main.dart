@@ -8,12 +8,11 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:lottie/lottie.dart';
 
 // ============================================================================
-// GESTOR DE EFECTOS DE SONIDO Y MÚSICA DOJO (AUDIO ENGINE)
+// GESTOR DE EFECTOS DE SONIDO Y MÚSICA DOJO (AUDIO ENGINE NATIVO)
 // ============================================================================
 class SoundEffects {
+  static const MethodChannel _nativeChannel = MethodChannel('ar.abakos.fruit_dojo/audio');
   static final AudioPlayer _bgmPlayer = AudioPlayer();
-  static final List<AudioPlayer> _sfxPool = List.generate(6, (_) => AudioPlayer());
-  static int _sfxIdx = 0;
   static bool musicEnabled = true;
   static bool sfxEnabled = true;
   static bool _initialized = false;
@@ -22,21 +21,8 @@ class SoundEffects {
     if (_initialized) return;
     _initialized = true;
     try {
-      await AudioPlayer.global.setAudioContext(AudioContext(
-        android: AudioContextAndroid(
-          isSpeakerphoneOn: false,
-          stayAwake: false,
-          contentType: AndroidContentType.sonification,
-          usageType: AndroidUsageType.game,
-          audioFocus: AndroidAudioFocus.none,
-        ),
-      ));
       await _bgmPlayer.setReleaseMode(ReleaseMode.loop);
       await _bgmPlayer.setVolume(0.38);
-      for (final p in _sfxPool) {
-        await p.setPlayerMode(PlayerMode.lowLatency);
-        await p.setVolume(1.0);
-      }
       if (musicEnabled) {
         startMusic();
       }
@@ -73,20 +59,17 @@ class SoundEffects {
     } catch (_) {}
   }
 
-  static void playSfx(String assetPath, {double volume = 1.0}) {
+  static void playSfx(String name, {double volume = 1.0}) {
     if (!sfxEnabled) return;
     try {
-      final p = _sfxPool[_sfxIdx];
-      _sfxIdx = (_sfxIdx + 1) % _sfxPool.length;
-      p.setVolume(volume);
-      p.play(AssetSource(assetPath), mode: PlayerMode.lowLatency);
+      _nativeChannel.invokeMethod('play', {'name': name, 'volume': volume});
     } catch (_) {}
   }
 
-  static void playSlash() => playSfx('audio/katana_slash.wav', volume: 1.0);
-  static void playSplat() => playSfx('audio/fruit_splat.wav', volume: 1.0);
-  static void playBomb() => playSfx('audio/bomb_explode.wav', volume: 1.0);
-  static void playCombo() => playSfx('audio/combo.wav', volume: 1.0);
+  static void playSlash() => playSfx('katana_slash', volume: 1.0);
+  static void playSplat() => playSfx('fruit_splat', volume: 1.0);
+  static void playBomb() => playSfx('bomb_explode', volume: 1.0);
+  static void playCombo() => playSfx('combo', volume: 1.0);
 }
 
 double _hypot(double a, double b) => math.sqrt(a * a + b * b);
