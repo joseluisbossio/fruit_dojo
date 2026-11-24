@@ -8,71 +8,85 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:lottie/lottie.dart';
 
 // ============================================================================
-// GESTOR DE EFECTOS DE SONIDO (AUDIO SFX)
+// GESTOR DE EFECTOS DE SONIDO Y MÚSICA DOJO (AUDIO ENGINE)
 // ============================================================================
 class SoundEffects {
-  static final AudioPlayer _slashPlayer = AudioPlayer();
-  static final List<AudioPlayer> _splatPlayers = [
-    AudioPlayer(),
-    AudioPlayer(),
-    AudioPlayer(),
-    AudioPlayer(),
-  ];
-  static int _splatIdx = 0;
-  static final AudioPlayer _bombPlayer = AudioPlayer();
-  static final AudioPlayer _comboPlayer = AudioPlayer();
+  static final AudioPlayer _bgmPlayer = AudioPlayer();
+  static final List<AudioPlayer> _sfxPool = List.generate(6, (_) => AudioPlayer());
+  static int _sfxIdx = 0;
+  static bool musicEnabled = true;
+  static bool sfxEnabled = true;
+  static bool _initialized = false;
 
-  static void init() {
+  static Future<void> init() async {
+    if (_initialized) return;
+    _initialized = true;
     try {
-      _slashPlayer.setPlayerMode(PlayerMode.lowLatency);
-      for (final p in _splatPlayers) {
-        p.setPlayerMode(PlayerMode.lowLatency);
+      await AudioPlayer.global.setAudioContext(AudioContext(
+        android: AudioContextAndroid(
+          isSpeakerphoneOn: false,
+          stayAwake: false,
+          contentType: AndroidContentType.sonification,
+          usageType: AndroidUsageType.game,
+          audioFocus: AndroidAudioFocus.none,
+        ),
+      ));
+      await _bgmPlayer.setReleaseMode(ReleaseMode.loop);
+      await _bgmPlayer.setVolume(0.38);
+      for (final p in _sfxPool) {
+        await p.setPlayerMode(PlayerMode.lowLatency);
+        await p.setVolume(1.0);
       }
-      _bombPlayer.setPlayerMode(PlayerMode.lowLatency);
-      _comboPlayer.setPlayerMode(PlayerMode.lowLatency);
-    } catch (_) {}
-  }
-
-  static void dispose() {
-    try {
-      _slashPlayer.dispose();
-      for (final p in _splatPlayers) {
-        p.dispose();
+      if (musicEnabled) {
+        startMusic();
       }
-      _bombPlayer.dispose();
-      _comboPlayer.dispose();
     } catch (_) {}
   }
 
-  static void playSlash() {
+  static void startMusic() {
+    if (!musicEnabled) return;
     try {
-      _slashPlayer.stop();
-      _slashPlayer.play(AssetSource('audio/katana_slash.wav'), mode: PlayerMode.lowLatency);
+      _bgmPlayer.setVolume(0.38);
+      _bgmPlayer.play(AssetSource('audio/dojo_music.wav'));
     } catch (_) {}
   }
 
-  static void playSplat() {
+  static void stopMusic() {
     try {
-      final p = _splatPlayers[_splatIdx];
-      _splatIdx = (_splatIdx + 1) % _splatPlayers.length;
-      p.stop();
-      p.play(AssetSource('audio/fruit_splat.wav'), mode: PlayerMode.lowLatency);
+      _bgmPlayer.stop();
     } catch (_) {}
   }
 
-  static void playBomb() {
+  static void toggleMusic() {
+    musicEnabled = !musicEnabled;
+    if (musicEnabled) {
+      startMusic();
+    } else {
+      stopMusic();
+    }
+  }
+
+  static void setMusicVolume(double vol) {
+    if (!musicEnabled) return;
     try {
-      _bombPlayer.stop();
-      _bombPlayer.play(AssetSource('audio/bomb_explode.wav'), mode: PlayerMode.lowLatency);
+      _bgmPlayer.setVolume(vol);
     } catch (_) {}
   }
 
-  static void playCombo() {
+  static void playSfx(String assetPath, {double volume = 1.0}) {
+    if (!sfxEnabled) return;
     try {
-      _comboPlayer.stop();
-      _comboPlayer.play(AssetSource('audio/combo.wav'), mode: PlayerMode.lowLatency);
+      final p = _sfxPool[_sfxIdx];
+      _sfxIdx = (_sfxIdx + 1) % _sfxPool.length;
+      p.setVolume(volume);
+      p.play(AssetSource(assetPath), mode: PlayerMode.lowLatency);
     } catch (_) {}
   }
+
+  static void playSlash() => playSfx('audio/katana_slash.wav', volume: 1.0);
+  static void playSplat() => playSfx('audio/fruit_splat.wav', volume: 1.0);
+  static void playBomb() => playSfx('audio/bomb_explode.wav', volume: 1.0);
+  static void playCombo() => playSfx('audio/combo.wav', volume: 1.0);
 }
 
 double _hypot(double a, double b) => math.sqrt(a * a + b * b);
@@ -312,7 +326,6 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
   @override
   void dispose() {
     _ticker.dispose();
-    SoundEffects.dispose();
     super.dispose();
   }
 
@@ -327,6 +340,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
   void _startGame(GameMode mode) {
     _mode = mode;
     _state = GameState.playing;
+    SoundEffects.setMusicVolume(0.45);
     _score = 0;
     _lives = 3;
     _timeLeft = 60.0;
@@ -344,6 +358,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
 
   void _triggerGameOver() {
     _state = GameState.gameover;
+    SoundEffects.setMusicVolume(0.20);
     if (_mode == GameMode.classic && _score > _highClassic) _highClassic = _score;
     if (_mode == GameMode.timed && _score > _highTimed) _highTimed = _score;
   }
@@ -403,6 +418,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
     _bonusCooldown = 18.0;
     HapticFeedback.mediumImpact();
     SoundEffects.playCombo();
+    SoundEffects.setMusicVolume(0.55);
     _lotties.add(LottieOverlayEffect(_nextId++, _comboBytes, _W / 2, _H * 0.35, 260, 0.9));
     _texts.add(FloatingText(
       '★ NIVEL BONUS ${_levelNum - 1}: ¡FRENESÍ! ★',
@@ -540,6 +556,9 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
             _spawnFrenzyFruit();
             _frenzySpawnTimer = 0.22;
           }
+          if (_bonusRoundTimer <= 0) {
+            SoundEffects.setMusicVolume(0.45);
+          }
         } else {
           _timeLeft -= dt;
           _bonusCooldown -= dt;
@@ -639,7 +658,7 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
     if (swipeDist < 4) return;
     final cutAngle = math.atan2(y2 - y1, x2 - x1);
 
-    if (swipeDist > 35 && nowMs - _lastSlashSoundMs > 140) {
+    if (swipeDist > 28 && nowMs - _lastSlashSoundMs > 110) {
       _lastSlashSoundMs = nowMs;
       SoundEffects.playSlash();
     }
@@ -649,10 +668,12 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
       final leftX = _W / 2 - gap, rightX = _W / 2 + gap;
       final y = _H * 0.58;
       if (_distSegmentPoint(x1, y1, x2, y2, leftX, y) <= 52) {
+        SoundEffects.playSplat();
         _startGame(GameMode.classic);
         return;
       }
       if (_distSegmentPoint(x1, y1, x2, y2, rightX, y) <= 54) {
+        SoundEffects.playSplat();
         _startGame(GameMode.timed);
         return;
       }
@@ -676,56 +697,101 @@ class _FruitDojoGameState extends State<FruitDojoGame> with TickerProviderStateM
         builder: (context, constraints) {
           _W = constraints.maxWidth;
           _H = constraints.maxHeight;
-          return Listener(
-            onPointerDown: (e) {
-              if (_state == GameState.gameover) {
-                setState(() => _state = GameState.menu);
-                return;
-              }
-              _trail.clear();
-              _trail.add(TrailPoint(e.localPosition.dx, e.localPosition.dy, DateTime.now().millisecondsSinceEpoch));
-            },
-            onPointerMove: (e) {
-              final nowMs = DateTime.now().millisecondsSinceEpoch;
-              final x = e.localPosition.dx, y = e.localPosition.dy;
-              if (_trail.isNotEmpty) {
-                final prev = _trail.last;
-                _handleSwipe(prev.x, prev.y, x, y, nowMs);
-              }
-              _trail.add(TrailPoint(x, y, nowMs));
-            },
-            onPointerUp: (_) => _flushCombo(),
-            onPointerCancel: (_) => _flushCombo(),
-            child: Stack(
-              children: [
-                CustomPaint(
-                  size: Size(_W, _H),
-                  painter: _DojoPainter(this),
+          return Stack(
+            children: [
+              Listener(
+                onPointerDown: (e) {
+                  if (_state == GameState.gameover) {
+                    setState(() {
+                      _state = GameState.menu;
+                      SoundEffects.setMusicVolume(0.38);
+                    });
+                    return;
+                  }
+                  _trail.clear();
+                  _trail.add(TrailPoint(e.localPosition.dx, e.localPosition.dy, DateTime.now().millisecondsSinceEpoch));
+                },
+                onPointerMove: (e) {
+                  final nowMs = DateTime.now().millisecondsSinceEpoch;
+                  final x = e.localPosition.dx, y = e.localPosition.dy;
+                  if (_trail.isNotEmpty) {
+                    final prev = _trail.last;
+                    _handleSwipe(prev.x, prev.y, x, y, nowMs);
+                  }
+                  _trail.add(TrailPoint(x, y, nowMs));
+                },
+                onPointerUp: (_) => _flushCombo(),
+                onPointerCancel: (_) => _flushCombo(),
+                child: Stack(
+                  children: [
+                    CustomPaint(
+                      size: Size(_W, _H),
+                      painter: _DojoPainter(this),
+                    ),
+                    // Bombas animadas nativamente con Lottie
+                    ..._entities.where((e) => e.kind == EntityKind.bomb).map((b) => Positioned(
+                      key: ValueKey(b.id),
+                      left: b.x - 65,
+                      top: b.y - 65,
+                      width: 130,
+                      height: 130,
+                      child: IgnorePointer(
+                        child: Lottie.memory(_bombBytes, repeat: true),
+                      ),
+                    )),
+                    // Explosiones y combos Lottie
+                    ..._lotties.map((l) => Positioned(
+                      key: ValueKey(l.id),
+                      left: l.x - l.size / 2,
+                      top: l.y - l.size / 2,
+                      width: l.size,
+                      height: l.size,
+                      child: IgnorePointer(
+                        child: Lottie.memory(l.bytes, repeat: false),
+                      ),
+                    )),
+                  ],
                 ),
-                // Bombas animadas nativamente con Lottie
-                ..._entities.where((e) => e.kind == EntityKind.bomb).map((b) => Positioned(
-                  key: ValueKey(b.id),
-                  left: b.x - 65,
-                  top: b.y - 65,
-                  width: 130,
-                  height: 130,
-                  child: IgnorePointer(
-                    child: Lottie.memory(_bombBytes, repeat: true),
+              ),
+              // Botón de activar/desactivar música dojo
+              Positioned(
+                top: 14,
+                right: 14,
+                child: SafeArea(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        SoundEffects.toggleMusic();
+                      });
+                    },
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: SoundEffects.musicEnabled ? const Color(0xFFFFD166) : Colors.white30,
+                          width: 1.6,
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black45,
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        SoundEffects.musicEnabled ? Icons.music_note_rounded : Icons.music_off_rounded,
+                        color: SoundEffects.musicEnabled ? const Color(0xFFFFD166) : Colors.white54,
+                        size: 24,
+                      ),
+                    ),
                   ),
-                )),
-                // Explosiones y combos Lottie
-                ..._lotties.map((l) => Positioned(
-                  key: ValueKey(l.id),
-                  left: l.x - l.size / 2,
-                  top: l.y - l.size / 2,
-                  width: l.size,
-                  height: l.size,
-                  child: IgnorePointer(
-                    child: Lottie.memory(l.bytes, repeat: false),
-                  ),
-                )),
-              ],
-            ),
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -889,14 +955,14 @@ class _DojoPainter extends CustomPainter {
       _drawText(canvas, '${g._score}', 24, 44, const Color(0xFFFFD166), 40, align: TextAlign.left);
       if (g._mode == GameMode.classic) {
         for (int i = 0; i < 3; i++) {
-          _drawText(canvas, '✕', w - 24 - i * 32, 48, i >= g._lives ? const Color(0xFFFF3B4E) : Colors.white24, 28, align: TextAlign.right);
+          _drawText(canvas, '✕', w - 76 - i * 30, 48, i >= g._lives ? const Color(0xFFFF3B4E) : Colors.white24, 28, align: TextAlign.right);
         }
       } else {
         final label = g._bonusRoundTimer > 0
             ? '★ BONUS ${g._bonusRoundTimer.toStringAsFixed(1)}s'
             : '${g._timeLeft.ceil()}s';
         final col = g._bonusRoundTimer > 0 ? const Color(0xFFFFD54F) : (g._timeLeft <= 10 ? const Color(0xFFFF4D5A) : const Color(0xFF5EF2C6));
-        _drawText(canvas, label, w - 24, 46, col, 32, align: TextAlign.right);
+        _drawText(canvas, label, w - 76, 46, col, 32, align: TextAlign.right);
       }
     }
 
